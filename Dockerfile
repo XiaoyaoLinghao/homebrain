@@ -12,6 +12,9 @@ COPY src/ /app/
 # Copy application entry point
 COPY app.py .
 
-EXPOSE 3000
+EXPOSE 3002
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:3002/health')"
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3002"]
