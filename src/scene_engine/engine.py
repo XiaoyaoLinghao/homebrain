@@ -72,7 +72,13 @@ def _cast_value(raw: Any, target: Any) -> Any:
         except (ValueError, TypeError):
             return raw
     if isinstance(target, list):
-        return raw  # don't coerce for `in` / `between`
+        # For 'between' / 'in' operators: coerce raw to match list element type
+        if len(target) > 0 and isinstance(target[0], (int, float)):
+            try:
+                return float(raw) if isinstance(target[0], float) else int(float(raw))
+            except (ValueError, TypeError):
+                return raw
+        return raw
     return raw
 
 
