@@ -159,7 +159,7 @@ class SceneEngine:
             return 0
 
         loaded: List[Dict[str, Any]] = []
-        for yf in sorted(target.glob("*.yaml")) + sorted(target.glob("*.yml")):
+        for yf in sorted(target.glob("**/*.yaml")) + sorted(target.glob("**/*.yml")):
             try:
                 raw = yaml.safe_load(yf.read_text(encoding="utf-8"))
                 if not raw:
