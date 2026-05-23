@@ -40,14 +40,15 @@ class DeviceState(BaseModel):
 
 
 class ServiceRequest(BaseModel):
-    service_data: Dict[str, Any] = Field(default_factory=dict, description="HA service data payload")
+    service_data: Dict[str, Any] = Field(default=None, description="HA service data payload")
+    entity_id: Optional[str] = Field(default=None, description="Entity ID shortcut")
 
 
 class ServiceResponse(BaseModel):
     success: bool
     domain: str
     service: str
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[Any] = None
 
 
 class HealthResponse(BaseModel):
@@ -104,7 +105,11 @@ async def get_device(entity_id: str):
 async def call_service(domain: str, service: str, body: ServiceRequest):
     try:
         bridge = get_bridge()
-        result = await bridge.call_service(domain, service, body.service_data)
+        # Build service data: prefer service_data field, fall back to other fields
+        service_data = body.service_data or {}
+        if not service_data and body.entity_id:
+            service_data = {"entity_id": body.entity_id}
+        result = await bridge.call_service(domain, service, service_data)
         return ServiceResponse(success=True, domain=domain, service=service, result=result)
     except HAConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))

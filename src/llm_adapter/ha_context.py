@@ -49,7 +49,54 @@ _DOMAIN_SERVICES: Dict[str, List[str]] = {
     "vacuum": ["start", "stop", "return_to_base"],
 }
 
-# ── service → JSON Schema parameter builders ─────────────────────────
+# ── domain → controllable domain check ─────────────────────────────
+_CONTROLLABLE_DOMAINS = frozenset({
+    "light", "switch", "climate", "fan", "cover",
+})
+
+
+# ── room extraction helper (reused from web_adapter pattern) ────────
+def _room_from_entity_state(entity: Dict[str, Any]) -> str:
+    """Extract room from HA entity state dict."""
+    attrs = entity.get("attributes", {}) or {}
+    entity_id = entity.get("entity_id", "")
+
+    area = attrs.get("area_id") or attrs.get("area") or attrs.get("room")
+    if area:
+        return area
+
+    _cn_rooms = ["客厅", "卧室", "主卧", "次卧", "厨房", "浴室", "阳台",
+                 "书房", "走廊", "餐厅", "玄关", "衣帽间"]
+
+    friendly = attrs.get("friendly_name", "")
+    if friendly:
+        for cn in _cn_rooms:
+            if cn in friendly:
+                return cn
+
+    parts = entity_id.split(".")
+    if len(parts) >= 2:
+        name_parts = parts[1].split("_")
+        room_hints = {
+            "living": "客厅", "ketin": "客厅",
+            "bedroom": "卧室", "woshi": "卧室",
+            "主卧": "主卧", "master": "主卧",
+            "次卧": "次卧", "second": "次卧",
+            "kitchen": "厨房", "chufang": "厨房",
+            "bathroom": "浴室", "yushi": "浴室",
+            "balcony": "阳台", "yangtai": "阳台",
+            "study": "书房", "shufang": "书房",
+            "corridor": "走廊", "zoulang": "走廊",
+            "dining": "餐厅", "canting": "餐厅",
+            "entrance": "玄关", "xuanguan": "玄关",
+            "cloakroom": "衣帽间", "yimaojian": "衣帽间",
+        }
+        for part in name_parts:
+            for eng, cn in room_hints.items():
+                if eng in part.lower():
+                    return cn
+
+    return "其他"
 _SERVICE_PARAMS: Dict[str, Dict[str, Any]] = {
     "turn_on": {
         "type": "object",
@@ -292,73 +339,19 @@ def _entity_friendly_name(entity: Dict[str, Any]) -> str:
     return eid.rsplit(".", 1)[-1].replace("_", " ")
 
 
-def _state_text(entity: Dict[str, Any]) -> str:
-    """Render entity state as a concise text line for LLM context.
+def _state_text_short(entity: Dict[str, Any]) -> str:
+    """Render one controllable entity as a single compact line.
 
-    Example outputs:
-        light.living_room (客厅灯): on, brightness=255
-        sensor.temp_living (客厅温度): 24.5°C
-        climate.bedroom_ac (卧室空调): off, target_temp=26
+    Only used for controllable domains (light/switch/climate/fan/cover).
+    Example: light.yeelink_xxx (书房吸顶灯): on
     """
     entity_id = entity.get("entity_id", "unknown")
-    domain = entity_id.split(".", 1)[0] if "." in entity_id else entity_id
     state = entity.get("state", "unknown")
     friendly = _entity_friendly_name(entity)
-    attrs = entity.get("attributes", {})
-
-    extra_parts: List[str] = []
-
-    if domain == "light" and state == "on":
-        brightness = attrs.get("brightness")
-        if brightness is not None:
-            extra_parts.append(f"brightness={brightness}")
-        color_temp = attrs.get("color_temp")
-        if color_temp is not None:
-            extra_parts.append(f"color_temp={color_temp}")
-
-    elif domain == "climate":
-        current_temp = attrs.get("current_temperature")
-        if current_temp is not None:
-            extra_parts.append(f"当前温度={current_temp}°C")
-        target_temp = attrs.get("temperature")
-        if target_temp is not None:
-            extra_parts.append(f"目标温度={target_temp}°C")
-        hvac_mode = attrs.get("hvac_mode")
-        if hvac_mode:
-            extra_parts.append(f"模式={hvac_mode}")
-
-    elif domain in ("sensor", "binary_sensor"):
-        unit = attrs.get("unit_of_measurement", "")
-        if unit:
-            state = f"{state}{unit}"
-        extra_parts.append(attrs.get("device_class", ""))
-
-    elif domain == "fan":
-        speed = attrs.get("percentage")
-        if speed is not None:
-            extra_parts.append(f"风速={speed}%")
-
-    elif domain == "cover":
-        position = attrs.get("current_position")
-        if position is not None:
-            extra_parts.append(f"开度={position}%")
-
-    elif domain == "lock":
-        pass  # state is already "locked" / "unlocked"
-
-    elif domain == "media_player":
-        volume = attrs.get("volume_level")
-        if volume is not None:
-            extra_parts.append(f"音量={volume * 100:.0f}%")
-        source = attrs.get("source")
-        if source:
-            extra_parts.append(f"源={source}")
+    domain = entity_id.split(".", 1)[0] if "." in entity_id else entity_id
 
     label = _DOMAIN_LABELS.get(domain, domain)
-    description = f"{entity_id} ({label}·{friendly}): {state}"
-    if extra_parts:
-        description += ", " + ", ".join(p for p in extra_parts if p)
-    return description
+    return f"{entity_id} ({friendly}): {state}"
 
 
 class HAContextBuilder:
@@ -381,16 +374,27 @@ class HAContextBuilder:
     # ── device context ───────────────────────────────────────────────
 
     async def build_device_context(self) -> str:
-        """Build a natural-language device status summary for the LLM.
+        """Build a room-grouped device status summary for the LLM.
 
-        Fetches all HA entity states and formats them as readable text.
-        Returns an empty string if HA is unreachable.
+        Groups all entities by room, provides high-level device counts
+        by domain, and only lists individual controllable devices
+        (light/switch/climate/fan/cover) grouped by room.
 
         Output example:
-            当前设备状态：
-            - light.living_room (灯光·客厅灯): on, brightness=255
-            - sensor.temp_living (传感器·客厅温度): 24.5°C
-            - climate.bedroom_ac (空调/温控·卧室空调): off, 目标温度=26°C
+            当前设备状态（共2411个实体，9个区域）：
+
+            📊 设备概览：
+            - 灯光: 135个 | 传感器: 1200+ | 开关: 420+ | 空调/温控: 56个 | ...
+
+            区域分布：
+            - 主卧: 236个设备 (灯光15, 传感器42, 开关8...)
+            - 书房: 165个设备
+            ...
+
+            🏠 可控制设备详情（灯光/开关/空调/风扇/窗帘）：
+            书房:
+              - light.xxx (书房吸顶灯): on
+              ...
         """
         states = await self.ha.get_all_states()
         if states is None:
@@ -399,20 +403,119 @@ class HAContextBuilder:
         if not states:
             return "当前没有可控制的设备。"
 
-        # Filter out hidden/internal entities
-        visible: List[str] = []
-        for entity in states:
-            entity_id = entity.get("entity_id", "")
-            if entity_id.startswith(("update.", "sun.", "persistent_notification.")):
-                continue
-            visible.append(_state_text(entity))
+        # Filter hidden/internal entities
+        visible = [
+            e for e in states
+            if not e.get("entity_id", "").startswith(
+                ("update.", "sun.", "persistent_notification.")
+            )
+        ]
 
         if not visible:
             return "当前没有可控制的设备。"
 
-        header = "当前设备状态：\n"
-        body = "\n".join(f"- {line}" for line in visible)
-        return header + body
+        total = len(visible)
+
+        # Classify: room → list of entities
+        room_entities: Dict[str, List[Dict[str, Any]]] = {}
+        for entity in visible:
+            room = _room_from_entity_state(entity)
+            room_entities.setdefault(room, []).append(entity)
+
+        num_rooms = len(room_entities)
+
+        # ── 1) Global domain counts ───────────────────────────────
+        domain_counts: Dict[str, int] = {}
+        for entity in visible:
+            eid = entity.get("entity_id", "")
+            domain = eid.split(".", 1)[0] if "." in eid else "other"
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+        overview_lines: List[str] = []
+        # Order by most relevant first
+        overview_order = ["light", "sensor", "binary_sensor", "switch", "climate",
+                          "cover", "fan", "lock", "media_player", "vacuum", "camera",
+                          "automation", "script", "scene"]
+        seen_domains = set()
+        for dom in overview_order:
+            cnt = domain_counts.pop(dom, 0)
+            if cnt > 0:
+                label = _DOMAIN_LABELS.get(dom, dom)
+                overview_lines.append(f"- {label}: {cnt}个")
+                seen_domains.add(dom)
+        # Remaining domains as "其他"
+        other_cnt = sum(domain_counts.values())
+        if other_cnt > 0:
+            overview_lines.append(f"- 其他: {other_cnt}个")
+
+        # ── 2) Per-room device count + domain breakdown ───────────
+        # Sort rooms: known rooms first, then by count desc, "其他" last
+        _room_order = {
+            "客厅": 0, "主卧": 1, "次卧": 2, "书房": 3, "厨房": 4,
+            "餐厅": 5, "浴室": 6, "阳台": 7, "走廊": 8, "玄关": 9, "衣帽间": 10,
+        }
+
+        def _room_sort_key(item: tuple) -> tuple:
+            room, entities = item
+            return (_room_order.get(room, 99), -len(entities))
+
+        room_lines: List[str] = []
+        for room, entities in sorted(room_entities.items(), key=_room_sort_key):
+            room_total = len(entities)
+            # Domain breakdown for this room
+            rd_counts: Dict[str, int] = {}
+            for entity in entities:
+                eid = entity.get("entity_id", "")
+                domain = eid.split(".", 1)[0] if "." in eid else "other"
+                rd_counts[domain] = rd_counts.get(domain, 0) + 1
+            breakdown_parts = []
+            for dom in overview_order:
+                cnt = rd_counts.get(dom, 0)
+                if cnt > 0:
+                    label = _DOMAIN_LABELS.get(dom, dom)
+                    breakdown_parts.append(f"{label}{cnt}")
+            breakdown = ", ".join(breakdown_parts) if breakdown_parts else ""
+            line = f"- {room}: {room_total}个设备"
+            if breakdown:
+                line += f" ({breakdown})"
+            room_lines.append(line)
+
+        # ── 3) Controllable device details by room ─────────────────
+        controllable_lines: List[str] = []
+        for room, entities in sorted(room_entities.items(), key=_room_sort_key):
+            controllable = [
+                e for e in entities
+                if e.get("entity_id", "").split(".", 1)[0] in _CONTROLLABLE_DOMAINS
+            ]
+            if not controllable:
+                continue
+            controllable_lines.append(f"{room}:")
+            displayed = 0
+            max_display = 15
+            for entity in controllable:
+                displayed += 1
+                if displayed > max_display:
+                    remaining = len(controllable) - max_display
+                    controllable_lines.append(f"  ... 余下 {remaining} 个")
+                    break
+                controllable_lines.append(f"  - {_state_text_short(entity)}")
+
+        # ── Assemble final context ─────────────────────────────────
+        parts: List[str] = [f"当前设备状态（共{total}个实体，{num_rooms}个区域）：\n"]
+
+        parts.append("📊 设备概览：")
+        parts.extend(overview_lines)
+        parts.append("")
+
+        parts.append("区域分布：")
+        parts.extend(room_lines)
+        parts.append("")
+
+        if controllable_lines:
+            parts.append("🏠 可控制设备详情（灯光/开关/空调/风扇/窗帘）：")
+            parts.extend(controllable_lines)
+
+        return "\n".join(parts)
 
     # ── function definitions ─────────────────────────────────────────
 

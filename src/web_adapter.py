@@ -66,26 +66,45 @@ def _category_from_entity_id(entity_id: str) -> str:
 
 
 def _room_from_entity(attrs: Dict[str, Any], entity_id: str) -> str:
-    """Extract room/area from entity attributes."""
-    # Try HA area_id first
+    """Extract room/area from entity attributes.
+
+    Priority:
+    1. HA area_id / area / room attribute
+    2. Chinese room name embedded in friendly_name (e.g. "书房吸顶灯" → 书房)
+    3. English keyword inference from entity_id
+    """
     area = attrs.get("area_id") or attrs.get("area") or attrs.get("room")
     if area:
         return area
 
-    # Try to infer from entity_id patterns
+    # All known Chinese room names and their canonical forms
+    _cn_rooms = ["客厅", "卧室", "主卧", "次卧", "厨房", "浴室", "阳台",
+                 "书房", "走廊", "餐厅", "玄关", "衣帽间"]
+
+    # Check friendly_name for embedded Chinese room name (e.g. "书房吸顶灯")
+    friendly = attrs.get("friendly_name", "")
+    if friendly:
+        for cn in _cn_rooms:
+            if cn in friendly:
+                return cn
+
+    # Fallback: infer from entity_id English keyword patterns
     parts = entity_id.split(".")
     if len(parts) >= 2:
         name_parts = parts[1].split("_")
         room_hints = {
-            "living": "客厅", "ketin": "客厅",
-            "bedroom": "卧室", "woshi": "卧室",
-            "kitchen": "厨房", "chufang": "厨房",
+            "living": "客厅", "ketin": "客厅", "客厅": "客厅",
+            "bedroom": "卧室", "woshi": "卧室", "卧室": "卧室",
+            "主卧": "主卧", "master": "主卧",
+            "次卧": "次卧", "second": "次卧",
+            "kitchen": "厨房", "chufang": "厨房", "厨房": "厨房",
             "bathroom": "浴室", "yushi": "浴室",
             "balcony": "阳台", "yangtai": "阳台",
-            "study": "书房", "shufang": "书房",
-            "corridor": "走廊", "zoulang": "走廊",
-            "dining": "餐厅", "canting": "餐厅",
-            "entrance": "玄关", "xuanguan": "玄关",
+            "study": "书房", "shufang": "书房", "书房": "书房",
+            "corridor": "走廊", "zoulang": "走廊", "走廊": "走廊",
+            "dining": "餐厅", "canting": "餐厅", "餐厅": "餐厅",
+            "entrance": "玄关", "xuanguan": "玄关", "玄关": "玄关",
+            "cloakroom": "衣帽间", "yimaojian": "衣帽间", "衣帽间": "衣帽间",
         }
         for part in name_parts:
             for eng, cn in room_hints.items():
