@@ -9,6 +9,7 @@ Version: 0.1.0
 """
 
 from .client import HABridgeClient
+from .router import router
 
 __version__ = "0.1.0"
-__all__ = ["HABridgeClient"]
+__all__ = ["HABridgeClient", "router"]

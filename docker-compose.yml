@@ -8,31 +8,70 @@ version: "3.9"
 services:
 
   # -------------------------------------------------------------------
-  # 设备底座：Home Assistant OS-less (Container install)
-  # 通过 xiaomi_home 插件导入小米设备，托管所有智能设备状态
-  # -------------------------------------------------------------------
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    network_mode: host
-    volumes:
-      - /opt/homeassistant/config:/config
-      - /etc/localtime:/etc/localtime:ro
-    environment:
-      - TZ=Asia/Shanghai
-    restart: unless-stopped
-
-  # -------------------------------------------------------------------
   # HomeBrain Core API（FastAPI）
   # 决策层入口：HA Bridge 事件监听 + 场景引擎 + LLM Adapter
   # -------------------------------------------------------------------
   homebrain-api:
-    build: ./src
-    network_mode: host
+    build: .
+    ports:
+      - "3000:3000"
     environment:
-      - HA_API_URL=${HA_API_URL:-http://localhost:8123}
+      - HA_API_URL=http://192.168.66.68:8123
       - HA_API_TOKEN=${HA_API_TOKEN}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - BRAIN_ENV=production
     restart: unless-stopped
-    depends_on:
-      - homeassistant
+
+  # -------------------------------------------------------------------
+  # HomeBrain Web Dashboard (future)
+  # -------------------------------------------------------------------
+  # homebrain-web:
+  #   image: homebrain-web:latest
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     - homebrain-api
+  #   restart: unless-stopped
+
+  # -------------------------------------------------------------------
+  # Node-RED Automation Flow Editor
+  # -------------------------------------------------------------------
+  # homebrain-node-red:
+  #   image: nodered/node-red:latest
+  #   ports:
+  #     - "1880:1880"
+  #   volumes:
+  #     - /opt/homebrain/node-red:/data
+  #   environment:
+  #     - TZ=Asia/Shanghai
+  #   restart: unless-stopped
+
+  # -------------------------------------------------------------------
+  # Mosquitto MQTT Broker
+  # -------------------------------------------------------------------
+  # homebrain-mqtt:
+  #   image: eclipse-mosquitto:latest
+  #   ports:
+  #     - "1883:1883"
+  #     - "9001:9001"
+  #   volumes:
+  #     - /opt/homebrain/mosquitto/config:/mosquitto/config
+  #     - /opt/homebrain/mosquitto/data:/mosquitto/data
+  #     - /opt/homebrain/mosquitto/log:/mosquitto/log
+  #   restart: unless-stopped
+
+  # -------------------------------------------------------------------
+  # homebrain-drivers — DEPRECATED (v1 legacy, replaced by HA Bridge)
+  # -------------------------------------------------------------------
+  # homebrain-drivers:
+  #   image: homebrain-drivers:legacy
+  #   restart: "no"
+  #   # DEPRECATED — do not deploy
+
+  # -------------------------------------------------------------------
+  # homebrain-mi-gpt — DEPRECATED (v1 legacy, replaced by LLM Adapter)
+  # -------------------------------------------------------------------
+  # homebrain-mi-gpt:
+  #   image: homebrain-mi-gpt:legacy
+  #   restart: "no"
+  #   # DEPRECATED — do not deploy

@@ -9,6 +9,7 @@ Version: 0.1.0
 """
 
 from .engine import SceneEngine
+from .router import router
 
 __version__ = "0.1.0"
-__all__ = ["SceneEngine"]
+__all__ = ["SceneEngine", "router"]
