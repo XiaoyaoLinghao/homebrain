@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ha_bridge import router as ha_router
 from scene_engine import router as scene_router
 from llm_adapter import router as llm_router
+from web_adapter import router as web_router
 
 app = FastAPI(title="HomeBrain v2.0", version="2.0.0")
 
@@ -23,6 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(web_router)
 app.include_router(ha_router)
 app.include_router(scene_router)
 app.include_router(llm_router)

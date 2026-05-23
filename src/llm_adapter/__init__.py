@@ -48,7 +48,7 @@ def get_adapter() -> LLMAdapter:
     """Lazy-init the LLMAdapter singleton using environment config."""
     global _adapter
     if _adapter is None:
-        from ..ha_bridge import HABridgeClient
+        from ha_bridge import HABridgeClient
 
         ha_client = HABridgeClient()
         api_key = os.environ.get("DEEPSEEK_API_KEY", "")

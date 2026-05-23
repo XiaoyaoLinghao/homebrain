@@ -72,7 +72,7 @@ async def health():
 async def list_devices():
     try:
         bridge = get_bridge()
-        states = await bridge.get_states()
+        states = await bridge.get_all_states()
         if states is None:
             return []
         return [DeviceState(**s) for s in states]

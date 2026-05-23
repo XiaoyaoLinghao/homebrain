@@ -23,14 +23,19 @@ router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 _engine: Optional[SceneEngine] = None
 
 
-def get_engine() -> SceneEngine:
+async def get_engine() -> SceneEngine:
     global _engine
     if _engine is None:
         from ha_bridge.client import HABridgeClient
+        import asyncio
 
         ha = HABridgeClient()
         transport = HATransport(ha)
         _engine = SceneEngine(transport)
+        count = await _engine.load_rules()
+        logger.info(f"SceneEngine loaded {count} rules")
+        await _engine.start()
+        logger.info("SceneEngine started")
     return _engine
 
 
@@ -67,7 +72,7 @@ class HealthResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    engine = get_engine()
+    engine = await get_engine()
     return {
         "status": "ok",
         "version": "0.1.0",
@@ -78,7 +83,7 @@ async def health():
 
 @router.get("", response_model=SceneListResponse)
 async def list_scenes():
-    engine = get_engine()
+    engine = await get_engine()
     scenes = [
         SceneInfo(
             name=s["name"],
@@ -94,7 +99,7 @@ async def list_scenes():
 
 @router.get("/{name}", response_model=SceneInfo)
 async def get_scene(name: str):
-    engine = get_engine()
+    engine = await get_engine()
     for s in engine._scenes:
         if s["name"] == name:
             return SceneInfo(
@@ -109,7 +114,7 @@ async def get_scene(name: str):
 
 @router.post("/{name}/run", response_model=SceneRunResponse)
 async def run_scene(name: str):
-    engine = get_engine()
+    engine = await get_engine()
     scene = None
     for s in engine._scenes:
         if s["name"] == name:
