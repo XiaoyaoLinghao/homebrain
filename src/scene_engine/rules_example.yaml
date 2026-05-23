@@ -1,0 +1,105 @@
+# HomeBrain v2 Scene Rules
+#
+# Each scene follows the trigger → condition → action DSL.
+# The engine evaluates triggers against live HA state via HATransport,
+# checks conditions, and executes actions via HA service calls.
+
+scenes:
+  # ─────────────────────────────────────────────────────────────────────
+  # 回家模式 — 门磁从 off→on 且日落之后，自动开灯
+  # ─────────────────────────────────────────────────────────────────────
+  - name: "回家模式"
+    enabled: true
+    trigger:
+      entity_id: "binary_sensor.door_sensor"
+      from: "off"
+      to: "on"
+    conditions:
+      - entity_id: "sun.sun"
+        attribute: "elevation"
+        operator: "lt"
+        value: 10
+    actions:
+      - domain: "light"
+        service: "turn_on"
+        target:
+          entity_id: "light.living_room"
+      - domain: "light"
+        service: "turn_on"
+        target:
+          entity_id: "light.entrance"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 离家关灯 — 门磁从 on→off 且所有人离开后，关闭所有灯
+  # ─────────────────────────────────────────────────────────────────────
+  - name: "离家关灯"
+    enabled: true
+    trigger:
+      entity_id: "binary_sensor.door_sensor"
+      from: "on"
+      to: "off"
+    conditions:
+      - entity_id: "device_tracker.phone_owner"
+        attribute: "state"
+        operator: "eq"
+        value: "not_home"
+    actions:
+      - domain: "light"
+        service: "turn_off"
+        target:
+          entity_id: "light.living_room"
+      - domain: "light"
+        service: "turn_off"
+        target:
+          entity_id: "light.entrance"
+      - domain: "light"
+        service: "turn_off"
+        target:
+          entity_id: "light.kitchen"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 夜间温度过高 — 自动开启空调制冷
+  # ─────────────────────────────────────────────────────────────────────
+  - name: "夜间制冷"
+    enabled: false  # disabled by default — enable when AC is installed
+    trigger:
+      entity_id: "sensor.indoor_temperature"
+      from: ""
+    conditions:
+      - entity_id: "sensor.indoor_temperature"
+        attribute: "state"
+        operator: "gt"
+        value: 28
+      - entity_id: "sun.sun"
+        attribute: "elevation"
+        operator: "lt"
+        value: 0
+    actions:
+      - domain: "climate"
+        service: "set_temperature"
+        target:
+          entity_id: "climate.bedroom_ac"
+        data:
+          temperature: 24
+          hvac_mode: "cool"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # 手动场景：观影模式
+  # 无 trigger.entity_id → 仅通过 trigger_scene_manually() 或 API 触发
+  # ─────────────────────────────────────────────────────────────────────
+  - name: "观影模式"
+    enabled: true
+    trigger: {}   # manual-only
+    conditions: []
+    actions:
+      - domain: "light"
+        service: "turn_on"
+        target:
+          entity_id: "light.living_room"
+        data:
+          brightness: 30
+          rgb_color: [255, 200, 100]
+      - domain: "cover"
+        service: "close_cover"
+        target:
+          entity_id: "cover.living_room_curtain"
