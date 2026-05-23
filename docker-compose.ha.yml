@@ -1,0 +1,31 @@
+# =============================================================================
+# Home Assistant Container — HomeBrain v2.0 设备底座
+# 部署目标: 192.168.66.68 (与现有 HomeBrain 5 容器共存)
+# 启动: docker compose -f docker-compose.ha.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  homeassistant:
+    container_name: homeassistant
+    # 使用官方 stable 镜像
+    image: ghcr.io/home-assistant/home-assistant:stable
+    # host 网络模式 — HA 直接暴露 8123 端口，与 HomeBrain 容器无端口冲突
+    network_mode: host
+    # 数据持久化: 配置、数据库、日志均保存在主机目录
+    volumes:
+      - /opt/homeassistant/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    # 不开启 privileged（纯 WiFi/中枢网关设备，不需要 USB 直通）
+    # 如果后续需要 Zigbee/Z-Wave USB 适配器，需改为 privileged: true
+    # privileged: false
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    # 资源限制（可选，根据主机资源调整）
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 1G
+    #       cpus: '2'
